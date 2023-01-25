@@ -210,7 +210,7 @@ void SensorRead(char *dist){
     }
     }else{
         flag=1;
-        count++;
+        count++; //
     }
     }
     strcpy(dist,"ERROR");
