@@ -1,25 +1,27 @@
 /**************************************************************
 * Proyect: Mareografo V1
 * Author: Cronon Tecnologia
-* Date: 24/01/2023
+* Date: 9/02/2023
 * Proyect Manager: Fernando Agostino
-* 
+* //
  **************************************************************/
 
 // Select your modem:
  #define TINY_GSM_MODEM_SIM7080 true
 // Set serial for debug console (to the Serial Monitor, default speed 115200)
 #define SerialMon Serial
-#ifndef __AVR_ATmega328P__
-#define SerialAT Serial1
-#else
-#include <SoftwareSerial.h>
-SoftwareSerial SerialAT(2, 3);  // RX, TX
-#endif
+#define SerialMaxB Serial1
+
+// Set serial for AT commands (to the module)
+// Use Hardware Serial on Mega, Leonardo, Micro
+
+#define SerialAT Serial2
+
+
+
+
 // Define the serial console for debug prints, if needed
-#define TINY_GSM_DEBUG SerialMon
-#define GSM_AUTOBAUD_MIN 9600
-#define GSM_AUTOBAUD_MAX 115200
+
 
 // Add a reception delay, if needed.
 // This may be needed for a fast processor at a slow baud rate.
@@ -187,11 +189,11 @@ void SensorRead(char *dist){
     digitalWrite(RANGING,HIGH);
     delayMicroseconds(200);
     digitalWrite(RANGING,LOW);
-    data=Serial.available();
+    data=SerialMaxB.available();
     if (data==6)
     {
     distancia=(char *)malloc(data*sizeof(char));
-    Serial.read(distancia,data);
+    SerialMaxB.read(distancia,data);
     if ((*distancia=='R')){
     *(distancia+(data*sizeof(char)-1))='\0';
     *(distancia)=*(distancia+1);
@@ -203,7 +205,7 @@ void SensorRead(char *dist){
     }
     else{
         distancia=(char *)malloc(data*sizeof(char));
-        Serial.read(distancia,data);
+        SerialMaxB.read(distancia,data);
         free(distancia);
         flag=1;
         count++;
@@ -218,36 +220,43 @@ void SensorRead(char *dist){
     } 
 
 void setup() {
-
   //Seteo de modo de pines
   pinMode(DATAIN,INPUT); //Pin 32 entrada del Maxbotix
   pinMode(RANGING,OUTPUT); //Pin 33 salida para marcar comienzo de lectura del Maxbotix
-  Serial.setPins(32,33,-1,-1); //seteo pin 32 como RX de Uart
-  
+
+/*   pinMode(4,OUTPUT); 
+  digitalWrite(4,LOW);
+  delay(1000);
+  digitalWrite(4,HIGH);  */
+   char dist[6];
+  delay(1000);
+  // Set console baud rate
+  SerialMon.begin(9600);
+  delay(1000);
+  SerialAT.begin(9600,SERIAL_8N1,26,27);
+  delay(1000);
+  SerialMaxB.begin(9600,SERIAL_8N1,32);
+  delay(1000);
 
    if (pressure.begin())
-    Serial.println("BMP180 Inicio completado");
+    SerialMon.println("BMP180 Inicio completado");
   else
   {
     // Hubo un problema
     // Consulte los comentarios en la parte superior de este esquema para conocer las conexiones adecuadas.
 
-    Serial.println("BMP180 Error de inicio ");
+    SerialMon.println("BMP180 Error de inicio ");
   }
-  // Set console baud rate
-  SerialMon.begin(9600);
-  delay(10000);
-  SerialMon.println("Wait...");
+
   delay(1000);
-  // Set GSM module baud rate
-  SerialAT.begin(9600,SERIAL_8N1,26,27);
+  SerialMon.println("Wait...");
   delay(1000);
 
   // Restart takes quite some time
   // To skip it, call init() instead of restart()
   SerialMon.println("Initializing modem...");
   modem.restart();
-  delay(10000);
+  delay(5000);
   modem.setPreferredMode(3); //Mode NB-Iot
   delay(1000);
   String modemInfo = modem.getModemInfo();
@@ -263,7 +272,15 @@ void setup() {
   }
   SerialMon.println(" success");
   if (modem.isNetworkConnected()) { SerialMon.println("Network connected"); }
-
+  
+  SensorRead(dist);
+  SerialMon.println(dist);
+    SensorRead(dist);
+  SerialMon.println(dist);
+    SensorRead(dist);
+  SerialMon.println(dist);
+    SensorRead(dist);
+  SerialMon.println(dist);
 #if TINY_GSM_USE_GPRS
   // GPRS connection parameters are usually set after network registration
   SerialMon.print(F("Connecting to "));
@@ -324,20 +341,20 @@ void loop() {
   }
      //Lectura de la presion
     pres= getPressure();
-    Serial.print("Presion: ");
-    Serial.print(pres);
-    Serial.print(" mb ");  
+    SerialMon.print("Presion: ");
+    SerialMon.print(pres);
+    SerialMon.print(" mb ");  
     //Lectura de temperatura
     Time=pressure.startTemperature();
     delay(Time);
     pressure.getTemperature(temp);
-    Serial.print(temp);
-    Serial.print(" ºC "); 
+    SerialMon.print(temp);
+    SerialMon.print(" ºC "); 
     Serial.print(" distancia: ");
     //Lectura de distancia
     SensorRead(dist);
-    Serial.print(dist);
-    Serial.println(" metros "); 
+    SerialMon.print(dist);
+    SerialMon.println(" metros "); 
 
 
   if (!mqtt.connected()) {
