@@ -272,15 +272,6 @@ void setup() {
   }
   SerialMon.println(" success");
   if (modem.isNetworkConnected()) { SerialMon.println("Network connected"); }
-  
-  SensorRead(dist);
-  SerialMon.println(dist);
-    SensorRead(dist);
-  SerialMon.println(dist);
-    SensorRead(dist);
-  SerialMon.println(dist);
-    SensorRead(dist);
-  SerialMon.println(dist);
 #if TINY_GSM_USE_GPRS
   // GPRS connection parameters are usually set after network registration
   SerialMon.print(F("Connecting to "));
