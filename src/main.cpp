@@ -8,28 +8,10 @@
 
 // Select your modem:
  #define TINY_GSM_MODEM_SIM7080 true
-// Set serial for debug console (to the Serial Monitor, default speed 115200)
+// Set serial 
 #define SerialMon Serial
 #define SerialMaxB Serial1
-
-// Set serial for AT commands (to the module)
-// Use Hardware Serial on Mega, Leonardo, Micro
-
 #define SerialAT Serial2
-
-
-
-
-// Define the serial console for debug prints, if needed
-
-
-// Add a reception delay, if needed.
-// This may be needed for a fast processor at a slow baud rate.
-// #define TINY_GSM_YIELD() { delay(2); }
-
-// Define how you're planning to connect to the internet.
-// This is only needed for this example, not in other code.
-
 #define TINY_GSM_USE_GPRS true
 #define TINY_GSM_USE_WIFI false
 
@@ -40,17 +22,19 @@ const char gprsPass[] = "clarogprs999";
 
 // MQTT details
 const char* broker = "mqtt.cronon.com.ar";
-
-const char* topicDistancia      = "Aquaman1/Distancia";
+const char* topicDistancia      = "Aquaman1/Distancia(m)";
 const char* topicInit      = "Aquaman1/init";
 const char* topicTemperatura = "Aquaman1/Temperatura";
-const char* topicPresion = "Aquaman1/Presion";
+const char* topicPresion = "Aquaman1/Presion(hPa)";
 const char* topicSignal = "Aquaman1/Signal";
-const char* topicBattery = "Aquaman1/Battery";
+const char* topicBateria = "Aquaman1/Bateria(mA)";
 const char* topicAquaman1 = "Aquaman1/Aquaman1";
+
 #include <TinyGsmClient.h>
 #include <PubSubClient.h>
 #include <Wire.h>
+#include <Arduino.h>
+#include<SFE_BMP180.h>
 
 // Just in case someone defined the wrong thing..
 #if TINY_GSM_USE_GPRS && not defined TINY_GSM_MODEM_HAS_GPRS
@@ -76,8 +60,8 @@ TinyGsm        modem(SerialAT);
 TinyGsmClient client(modem);
 PubSubClient  mqtt(client);
 
-#include <Arduino.h>
-#include<SFE_BMP180.h>
+
+
 #define DATAIN 32
 #define RANGING 33
 
@@ -85,6 +69,85 @@ uint32_t lastReconnectAttempt = 0;
 SFE_BMP180 pressure;
 double temp;
 double pres;
+
+void InitUart(void){
+  //Seteo de modo de pines
+  pinMode(DATAIN,INPUT); //Pin 32 entrada del Maxbotix
+  pinMode(RANGING,OUTPUT); //Pin 33 salida para marcar comienzo de lectura del Maxbotix
+
+  // Set console baud rate
+  SerialMon.begin(9600);
+  delay(1000);
+  SerialAT.begin(9600,SERIAL_8N1,26,27);
+  delay(1000);
+  SerialMaxB.begin(9600,SERIAL_8N1,DATAIN);
+  delay(1000);
+}
+
+void InitSensors(){
+
+   pinMode(4,OUTPUT); 
+   digitalWrite(4,HIGH);
+   delay(1000);
+   digitalWrite(4,LOW);   
+  delay(5000);
+  if (pressure.begin())
+  SerialMon.println("BMP180 Inicio completado");
+  else
+  {
+    // Hubo un problema
+    SerialMon.println("BMP180 Error de inicio ");
+    for (int i=0; i<10; i++){
+      digitalWrite(12,HIGH);
+      delay(1000);
+      digitalWrite(12,LOW);
+      delay(1000);
+    }
+
+  }
+  return;
+}
+
+void InitModem(void){
+    // Restart takes quite some time
+  // To skip it, call init() instead of restart()
+  SerialMon.println("Initializing modem...");
+  modem.restart();
+  delay(10000);
+  modem.setPreferredMode(3); //Mode NB-Iot
+  delay(1000);
+
+  String modemInfo = modem.getModemInfo();
+  SerialMon.print("Modem Info: ");
+  SerialMon.println(modemInfo);
+  delay(1000);
+
+  SerialMon.print("Waiting for network...");
+    delay(1000);
+    if (!modem.waitForNetwork()) {
+      SerialMon.println(" fail");
+      delay(10000);
+      return;
+    }
+    SerialMon.println(" success");
+
+    if (modem.isNetworkConnected()) { SerialMon.println("Network connected"); }
+  #if TINY_GSM_USE_GPRS
+    // GPRS connection parameters are usually set after network registration
+    SerialMon.print(F("Connecting to "));
+    SerialMon.print(apn);
+    if (!modem.gprsConnect(apn, gprsUser, gprsPass)) {
+      SerialMon.println(" fail");
+      delay(10000);
+      return;
+    }
+    SerialMon.println(" success");
+    if (modem.isGprsConnected()) { SerialMon.println("GPRS connected"); }
+  #endif
+
+  return;
+
+}
 
 void mqttCallback(char* topic, byte* payload, unsigned int len) {
   SerialMon.print("Message arrived [");
@@ -158,13 +221,13 @@ double getPressure() //Retorna la presion en mb
         {
           return(P);
         }
-        else Serial.println("Error obteniendo informacion de presion\n");
+        else SerialMon.println("Error obteniendo informacion de presion\n");
       }
-      else Serial.println("Error iniciando mediciones de presion\n");
+      else SerialMon.println("Error iniciando mediciones de presion\n");
     }
-    else Serial.println("Error obteniendo mediciones de temperatura\n");
+    else SerialMon.println("Error obteniendo mediciones de temperatura\n");
   }
-  else Serial.println("Error iniciando mediciones de temperatura\n");
+  else SerialMon.println("Error iniciando mediciones de temperatura\n");
   return 1;
 }
 
@@ -219,91 +282,56 @@ void SensorRead(char *dist){
     
     } 
 
-void setup() {
-  //Seteo de modo de pines
-  pinMode(DATAIN,INPUT); //Pin 32 entrada del Maxbotix
-  pinMode(RANGING,OUTPUT); //Pin 33 salida para marcar comienzo de lectura del Maxbotix
+void SensadoYenvio()
+{
+    int csq;
+    double a;
+    char dist[6];
+    char presion[16];
+    char signal[6];
+    char temperatura[16];
+    char bateria[10];
+    int bat;
+    int Time=0;
+    //Lectura de la presion
+    pres= getPressure();
+    SerialMon.print("Presion: ");
+    SerialMon.print(pres);
+    SerialMon.print(" mb ");  
+    delay(1000);
+    //Lectura de temperatura
+    Time=pressure.startTemperature();
+    delay(Time);
+    pressure.getTemperature(temp);
+    SerialMon.print(temp);
+    SerialMon.print(" grados ");  
+    delay(1000);
+    //Lectura de distancia
+    SerialMon.print(" distancia: ");
+    SensorRead(dist);
+    SerialMon.print(dist);
+    SerialMon.println(" metros "); 
+    //Lectura de senial
+    csq = modem.getSignalQuality();
+    //Lesto estado de bateria
+    bat=analogRead(35);
+    bat=bat*2;
+    //Conversion de datos
+    sprintf(presion,"%f",pres);
+    sprintf(temperatura,"%f",temp);
+    itoa(csq,signal,6);
+    itoa(bat,bateria,10);
+    //Envio de datos
+    mqtt.publish(topicDistancia,dist);
+    mqtt.publish(topicPresion,presion);
+    mqtt.publish(topicTemperatura,temperatura);
+    mqtt.publish(topicSignal,signal);
+    mqtt.publish(topicBateria,bateria);
 
-/*   pinMode(4,OUTPUT); 
-  digitalWrite(4,LOW);
-  delay(1000);
-  digitalWrite(4,HIGH);  */
-   char dist[6];
-  delay(1000);
-  // Set console baud rate
-  SerialMon.begin(9600);
-  delay(1000);
-  SerialAT.begin(9600,SERIAL_8N1,26,27);
-  delay(1000);
-  SerialMaxB.begin(9600,SERIAL_8N1,32);
-  delay(1000);
-
-   if (pressure.begin())
-    SerialMon.println("BMP180 Inicio completado");
-  else
-  {
-    // Hubo un problema
-    // Consulte los comentarios en la parte superior de este esquema para conocer las conexiones adecuadas.
-
-    SerialMon.println("BMP180 Error de inicio ");
-  }
-
-  delay(1000);
-  SerialMon.println("Wait...");
-  delay(1000);
-
-  // Restart takes quite some time
-  // To skip it, call init() instead of restart()
-  SerialMon.println("Initializing modem...");
-  modem.restart();
-  delay(5000);
-  modem.setPreferredMode(3); //Mode NB-Iot
-  delay(1000);
-  String modemInfo = modem.getModemInfo();
-  SerialMon.print("Modem Info: ");
-  SerialMon.println(modemInfo);
-  delay(1000);
-  SerialMon.print("Waiting for network...");
-  delay(1000);
-  if (!modem.waitForNetwork()) {
-    SerialMon.println(" fail");
-    delay(10000);
-    return;
-  }
-  SerialMon.println(" success");
-  if (modem.isNetworkConnected()) { SerialMon.println("Network connected"); }
-#if TINY_GSM_USE_GPRS
-  // GPRS connection parameters are usually set after network registration
-  SerialMon.print(F("Connecting to "));
-  SerialMon.print(apn);
-  if (!modem.gprsConnect(apn, gprsUser, gprsPass)) {
-    SerialMon.println(" fail");
-    delay(10000);
-    return;
-  }
-  SerialMon.println(" success");
-  if (modem.isGprsConnected()) { SerialMon.println("GPRS connected"); }
-#endif
-
-  // MQTT Broker setup
-  mqtt.setServer(broker, 1883);
-  mqtt.setCallback(mqttCallback);
 }
 
-void loop() {
-  int csq;
-  double a;
-  
-  char dist[6];
-  char presion[6];
-  char signal[6];
-  char temperatura[6];
-  int Time=0;
-  
-
-
-  SerialMon.println("Entre al LOOP!");
-  // Make sure we're still registered on the network
+void MQTTVerify(){
+    // Make sure we're still registered on the network
   if (!modem.isNetworkConnected()) {
     SerialMon.println("Network disconnected");
     if (!modem.waitForNetwork(180000L, true)) {
@@ -330,25 +358,7 @@ void loop() {
     }
 
   }
-     //Lectura de la presion
-    pres= getPressure();
-    SerialMon.print("Presion: ");
-    SerialMon.print(pres);
-    SerialMon.print(" mb ");  
-    //Lectura de temperatura
-    Time=pressure.startTemperature();
-    delay(Time);
-    pressure.getTemperature(temp);
-    SerialMon.print(temp);
-    SerialMon.print(" ºC "); 
-    Serial.print(" distancia: ");
-    //Lectura de distancia
-    SensorRead(dist);
-    SerialMon.print(dist);
-    SerialMon.println(" metros "); 
-
-
-  if (!mqtt.connected()) {
+    if (!mqtt.connected()) {
     SerialMon.println("=== MQTT NOT CONNECTED ===");
     // Reconnect every 10 seconds
     uint32_t t = millis();
@@ -359,15 +369,28 @@ void loop() {
     delay(100);
     return;
   }
-  csq = modem.getSignalQuality();
-  sprintf(presion,"%f",pres);
-  sprintf(temperatura,"%f",temp);
-  itoa(csq,signal,6);
-  mqtt.publish(topicDistancia,dist);
-  mqtt.publish(topicPresion,presion);
-  mqtt.publish(topicTemperatura,temperatura);
-  mqtt.publish(topicSignal,signal);
+
+}
+void setup() {
+  pinMode(12,OUTPUT);
+  //pinMode(35, INPUT);
+  InitUart();
+  InitSensors();
+  InitModem();
+
+  // MQTT Broker setup
+  mqtt.setServer(broker, 1883);
+  mqtt.setCallback(mqttCallback);
+
+}
+
+void loop() {
+  digitalWrite(12,HIGH);
+  SensadoYenvio();
+  MQTTVerify();
   delay(6000);
 
+  digitalWrite(12,LOW);
   mqtt.loop();
+  
 }
